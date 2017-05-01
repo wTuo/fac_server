@@ -14,7 +14,13 @@
 #include <iostream>
 
 
+
+
+
+
 std::map<int, session_info> sessions_;
+
+MYSQL* db_conn,mysql;
 
 EPoint  G;
 Curve sm2;
@@ -98,12 +104,15 @@ int tcp_server::run(){
   
 }
 int tcp_server::conn_to_db(){
-  // mysql_init(&mysql);
-  // db_conn=mysql_real_connect(&mysql,"localhost","root","",0,0,0);
-  // if(db_conn==NULL){
-  //   std::cout<<mysql_error(&mysql)<<std::endl;
-  //   return -1;
-  // }
+  mysql_init(&mysql);
+  db_conn=mysql_real_connect(&mysql,"localhost","admin","123456","device",0,NULL,0);
+  if(db_conn==NULL){
+    std::cout<<"connect failed."<<std::endl;
+    std::cout<<mysql_error(&mysql)<<std::endl;
+    return -1;
+  }
+  std::cout<<"connect to db successfully."<<std::endl;
+  mysql_close(db_conn);
   return 1;
 }
 
@@ -133,13 +142,9 @@ void base_event_handler(evutil_socket_t fd, short what_ev,void* arg){
   new_conn(client_fd);
   
 }
-void ext_cmd_and_len(uint8_t* buf,uint8_t* cmd,uint8_t* len){
-  for(int i=0;i<=3;i++){
-    cmd[i]=buf[i];
-  }
-  for(int i=4;i<=7;i++){
-    len[i]=buf[i];
-  }
+void ext_cmd_and_len(uint8_t* buf,uint32_t* p_cmd,uint32_t* p_len){
+  std::memcpy(p_cmd,buf,4);
+  std::memcpy(p_len,buf+4,4);
 }
 
 
@@ -150,6 +155,39 @@ void ext_cmd_and_len(uint8_t* buf,uint8_t* cmd,uint8_t* len){
 //   }
   
 // }
+int handle_device_info(uint8_t* info_buf,int buf_size){
+  char id[100],name[50],info[200];
+  char query_stmt[500];
+  int i=0,j=0,k=0;
+  for(;info_buf[i]!='|';i++){
+    id[i]=info_buf[i];
+  }
+  id[i]='\0';
+  i++;
+  for(;info_buf[i]!='|';i++){
+    name[j++]=info_buf[i];
+  }
+  name[j]='\0';
+  i++;
+  for(;i<buf_size;i++){
+    info[k++]=info_buf[i];
+  }
+  info[k]='\0';
+  // std::cout<<"query statement is: "<<query_stmt<<std::endl;
+  db_conn=mysql_real_connect(&mysql,"localhost","admin","123456","device",0,NULL,0);
+  if(db_conn==NULL){
+    std::cout<<"connect to database failed."<<std::endl;
+    std::cout<<mysql_error(&mysql)<<std::endl;
+    return -1;
+  }
+  sprintf(query_stmt,"INSERT INTO main VALUES ('%s','%s','%s')", id, name, info);
+  if(mysql_query(db_conn, query_stmt)!=0){
+    std::cout<<"insert to database failed."<<std::endl;
+    return -1;
+  }
+  mysql_close(db_conn);
+  return 1;
+}
 
 void read_handler(evutil_socket_t fd, short what_ev,void* arg){
   int client_fd=fd;
@@ -160,14 +198,15 @@ void read_handler(evutil_socket_t fd, short what_ev,void* arg){
     return;
   }
   event_del(sessions_[client_fd].read_ev);
-  uint8_t cmd[4],len[4];
+  // uint8_t cmd[4],len[4];
+  uint32_t cmd_,len_;
   switch(sess_status){
   case READY_FOR_RECEV_GX:
     {
       uint8_t gx_buf[72];
       if(read(fd, gx_buf, 8)>0){
-        ext_cmd_and_len(gx_buf,cmd,len);
-        uint32_t cmd_= cmd[0] | (cmd[1] << 8) | (cmd[2] << 16) | (cmd[3] << 24);
+        ext_cmd_and_len(gx_buf,&cmd_,&len_);
+        // uint32_t cmd_= cmd[0] | (cmd[1] << 8) | (cmd[2] << 16) | (cmd[3] << 24);
         if(cmd_!=CMD_1){
           std::cerr<<"ERROR: READY_FOR_RECEV_GX: cmd check error."<<std::endl;
           close_conn(client_fd);
@@ -201,9 +240,7 @@ void read_handler(evutil_socket_t fd, short what_ev,void* arg){
       uint8_t pre_buf[8];
       int mes_len;
       if(read(client_fd, pre_buf, 8)>0){
-        ext_cmd_and_len(pre_buf,cmd,len);
-        uint32_t cmd_= cmd[0] | (cmd[1] << 8) | (cmd[2] << 16) | (cmd[3] << 24);
-        uint32_t len_= cmd[0] | (cmd[1] << 8) | (cmd[2] << 16) | (cmd[3] << 24);
+        ext_cmd_and_len(pre_buf,&cmd_,&len_);
         mes_len=(int)len_;
         if(cmd_!=CMD_3){
           std::cerr<<"ERROR: READY_FOR_RECEV_INFO: cmd check error."<<std::endl;
@@ -220,6 +257,10 @@ void read_handler(evutil_socket_t fd, short what_ev,void* arg){
       }
       uint8_t info_buf[MAX_INFO_SIZE];
       if(read(fd, info_buf, mes_len)>0){
+        std::cout<<"mes_len: "<<mes_len<<std::endl;
+        if(!handle_device_info(info_buf,mes_len)){
+          std::cout<<"INSERT OK!"<<std::endl;
+        }
         sessions_[client_fd].status=RECEV_INFO_COMPLETE;
       }
       else{
