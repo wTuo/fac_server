@@ -27,7 +27,7 @@ Curve sm2;
 
 struct event_base *main_base_;
 
-const char* SERVER_IP="127.0.0.1";
+const char* SERVER_IP="192.168.1.17";
 
 session_info::session_info(int fd){
   session_fd=fd;
@@ -96,6 +96,7 @@ int tcp_server::run(){
     close(server_fd_);
     return -1;
   }
+  std::cout << "listen" << std::endl;
   listen_ev_=event_new(main_base_, server_fd_, EV_READ|EV_PERSIST, base_event_handler, NULL);
   event_add(listen_ev_, NULL);
   event_base_dispatch(main_base_);
@@ -104,15 +105,15 @@ int tcp_server::run(){
   
 }
 int tcp_server::conn_to_db(){
-  mysql_init(&mysql);
-  db_conn=mysql_real_connect(&mysql,"localhost","admin","123456","device",0,NULL,0);
-  if(db_conn==NULL){
-    std::cout<<"connect failed."<<std::endl;
-    std::cout<<mysql_error(&mysql)<<std::endl;
-    return -1;
-  }
-  std::cout<<"connect to db successfully."<<std::endl;
-  mysql_close(db_conn);
+   mysql_init(&mysql);
+  // db_conn=mysql_real_connect(&mysql,"localhost","admin","123456","device",0,NULL,0);
+  // if(db_conn==NULL){
+  //   std::cout<<"connect failed."<<std::endl;
+  //   std::cout<<mysql_error(&mysql)<<std::endl;
+  //   return -1;
+  // }
+  // std::cout<<"connect to db successfully."<<std::endl;
+  // mysql_close(db_conn);
   return 1;
 }
 
@@ -138,6 +139,7 @@ void base_event_handler(evutil_socket_t fd, short what_ev,void* arg){
   struct sockaddr_in client_addr;
   socklen_t sin_size=sizeof(struct sockaddr_in);
   int client_fd=accept(fd, (struct sockaddr*)& client_addr, &sin_size);
+  std::cout << "base_event_handler " << client_fd << std::endl;
   evutil_make_socket_nonblocking(client_fd);
   new_conn(client_fd);
   
@@ -156,36 +158,44 @@ void ext_cmd_and_len(uint8_t* buf,uint32_t* p_cmd,uint32_t* p_len){
   
 // }
 int handle_device_info(uint8_t* info_buf,int buf_size){
-  char id[100],name[50],info[200];
-  char query_stmt[500];
-  int i=0,j=0,k=0;
-  for(;info_buf[i]!='|';i++){
-    id[i]=info_buf[i];
+  char id[100] = {0},name[100]={0},info[200],emu[2]={0};
+  char query_stmt[500]={0};
+  int i=0,j=0;
+  for(j=0;info_buf[i]!='|';i++){
+    id[j++]=info_buf[i];
   }
-  id[i]='\0';
+  id[j]='\0';
   i++;
-  for(;info_buf[i]!='|';i++){
+  for(j=0;info_buf[i]!='|';i++){
     name[j++]=info_buf[i];
   }
   name[j]='\0';
   i++;
-  for(;i<buf_size;i++){
-    info[k++]=info_buf[i];
+  for(j=0;info_buf[i]!='|';i++){
+    info[j++]=info_buf[i];
   }
-  info[k]='\0';
-  // std::cout<<"query statement is: "<<query_stmt<<std::endl;
-  db_conn=mysql_real_connect(&mysql,"localhost","admin","123456","device",0,NULL,0);
+  info[j]='\0';
+  i++;
+  for(j=0;i<buf_size;i++){
+    emu[j++]=info_buf[i];
+  }
+  emu[j]='\0';
+  std::cout<<"1:"<<id<<" 2:"<<name<<" 3:"<<info<<" 4:"<<emu<<std::endl;
+
+ // std::cout<<"query statement is: "<<query_stmt<<std::endl;
+  db_conn=mysql_real_connect(&mysql,"localhost","root","root","device",0,NULL,0);
   if(db_conn==NULL){
-    std::cout<<"connect to database failed."<<std::endl;
-    std::cout<<mysql_error(&mysql)<<std::endl;
-    return -1;
+   std::cout<<"connect to database failed."<<std::endl;
+   std::cout<<mysql_error(&mysql)<<std::endl;
+   return -1;
   }
-  sprintf(query_stmt,"INSERT INTO main VALUES ('%s','%s','%s')", id, name, info);
+  sprintf(query_stmt,"INSERT INTO main (did,name,info) VALUES ('%s','%s','%s')", id, name, info);
   if(mysql_query(db_conn, query_stmt)!=0){
-    std::cout<<"insert to database failed."<<std::endl;
-    return -1;
+   std::cout<<"insert to database failed."<<std::endl;
+   return -1;
   }
   mysql_close(db_conn);
+
   return 1;
 }
 
@@ -193,7 +203,7 @@ void read_handler(evutil_socket_t fd, short what_ev,void* arg){
   int client_fd=fd;
   int sess_status=sessions_[client_fd].status;
   if(what_ev&EV_TIMEOUT){
-    std::cerr<<"ERROR: WRITE_HANDLER "<<sess_status<<" : 5s TIMEOUT."<<std::endl;
+    std::cerr<<"ERROR: READ_HANDLER "<<sess_status<<" : 5s TIMEOUT."<<std::endl;
     close_conn(client_fd);
     return;
   }
@@ -220,13 +230,16 @@ void read_handler(evutil_socket_t fd, short what_ev,void* arg){
         return;
       }
       if(read(fd, gx_buf+8, 64)>0){
-        std::cout<<"GX RECEVED"<<std::endl;
+        std::cout<<"GX HAS BEEN RECEVED"<<std::endl;
         sessions_[client_fd].kG_from_client.x=cppint_from_uint8(gx_buf+8,32);
         sessions_[client_fd].kG_from_client.y=cppint_from_uint8(gx_buf+40,32);
         EPoint dkG=mul(sessions_[client_fd].d, sessions_[client_fd].kG_from_client, sm2);
+        //uint8_t dkG_x_buffer[32];
+        //cppint_to_uint8(dkG.x, dkG_x_buffer,32);
         sessions_[client_fd].key=dkG.x;
-        std::cout<<"key: "<<dkG.x<<std::endl;
+        std::cout<<  "key: "<<std::setbase(16) << dkG.x <<std::endl;
         sessions_[client_fd].status=READY_FOR_SEND_GY;
+        //sleep(8);
       }
       else{
         std::cerr<<"ERROR: READY_FOR_RECEV_GX: read gx check error."<<std::endl;
@@ -243,6 +256,7 @@ void read_handler(evutil_socket_t fd, short what_ev,void* arg){
         ext_cmd_and_len(pre_buf,&cmd_,&len_);
         mes_len=(int)len_;
         if(cmd_!=CMD_3){
+          std::cout << "cmd3 " << cmd_ << std::endl;
           std::cerr<<"ERROR: READY_FOR_RECEV_INFO: cmd check error."<<std::endl;
           sessions_[client_fd].status=RECEV_INFO_ERROR;          
           event_add(sessions_[client_fd].write_ev,&FIVE_SECONDS);
@@ -257,10 +271,10 @@ void read_handler(evutil_socket_t fd, short what_ev,void* arg){
       }
       uint8_t info_buf[MAX_INFO_SIZE];
       if(read(fd, info_buf, mes_len)>0){
-        std::cout<<"mes_len: "<<mes_len<<std::endl;
-        if(!handle_device_info(info_buf,mes_len)){
-          std::cout<<"INSERT OK!"<<std::endl;
-        }
+        std::cout<<"info length is: "<<mes_len<<std::endl;
+         if(!handle_device_info(info_buf,mes_len)){
+           std::cout<<"INSERT OK!"<<std::endl;
+         }
         sessions_[client_fd].status=RECEV_INFO_COMPLETE;
       }
       else{
@@ -288,7 +302,7 @@ void write_handler(evutil_socket_t fd, short what_ev, void* arg){
     return;
   }
   event_del(sessions_[client_fd].write_ev);
-  std::cout<<"write handler is working"<<std::endl;
+  // std::cout<<"write handler is working"<<std::endl;
   switch(sess_status){
   case READY_FOR_SEND_GY:
     {
@@ -304,7 +318,7 @@ void write_handler(evutil_socket_t fd, short what_ev, void* arg){
       std::memcpy(send+8, dG_x, 32);
       std::memcpy(send+40, dG_y, 32);
       if(write(client_fd , send, 72)>0){
-        std::cout<<"HAVING SEND GY "<<std::endl;
+        std::cout<<"HAVING SENT GY "<<std::endl;
         sessions_[client_fd].status=READY_FOR_RECEV_INFO;
       }
       break;
@@ -320,7 +334,7 @@ void write_handler(evutil_socket_t fd, short what_ev, void* arg){
         std::cerr<<"SEND RESPONSE OK ERROR."<<std::endl;        
           
       }
-      std::cout<<"Interaction Complete!"<<std::endl;
+      std::cout<<"Complete!"<<std::endl;
       close_conn(client_fd);
       return;
       break;
@@ -333,7 +347,7 @@ void write_handler(evutil_socket_t fd, short what_ev, void* arg){
      uint8_t resp_error[9];
      static unsigned int const resp_error_len=1;
      std::memcpy(resp_error, &CMD_4, sizeof(CMD_4));
-     std::memcpy(resp_error, &resp_error_len, sizeof(resp_error_len));
+     std::memcpy(resp_error+4, &resp_error_len, sizeof(resp_error_len));
      resp_error[8]=0;
      if(write(client_fd, resp_error, 9)<=0){
        std::cerr<<"SEND RESPONSE ERROR ERROR."<<std::endl;        

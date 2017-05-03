@@ -19,8 +19,7 @@ const int BACKLOG = 100; // Connection queue size for accept()
 extern const char* SERVER_IP;
 static struct timeval const FIVE_SECONDS = {5,0};
 
-#define MAX_INFO_SIZE 100
-
+#define MAX_INFO_SIZE 1024
 
 static unsigned int const CMD_1	= 0x19824576;
 static unsigned int const CMD_2	= 0x89852035;
@@ -59,6 +58,8 @@ class session_info{
 extern std::map<int, session_info> sessions_;
 
 
+extern MYSQL* db_conn,mysql;
+
 
 int close_conn(int fd);
 int new_conn(int fd);
@@ -81,7 +82,6 @@ class tcp_server
   int server_fd_;
   struct event* listen_ev_;
 
-  MYSQL* db_conn,mysql;
 
 
 };
