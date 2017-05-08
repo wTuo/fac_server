@@ -158,29 +158,21 @@ void ext_cmd_and_len(uint8_t* buf,uint32_t* p_cmd,uint32_t* p_len){
   
 // }
 int handle_device_info(uint8_t* info_buf,int buf_size){
-  char id[100] = {0},name[100]={0},info[200],emu[2]={0};
+  char fp_id[100] = {0},name[100]={0},info[200]={0},emu[2]={0};
   char query_stmt[500]={0};
   int i=0,j=0;
-  for(j=0;info_buf[i]!='|';i++){
-    id[j++]=info_buf[i];
-  }
+  for(j=0;info_buf[i]!='|';i++){ id[j++]=info_buf[i]; }
   id[j]='\0';
   i++;
-  for(j=0;info_buf[i]!='|';i++){
-    name[j++]=info_buf[i];
-  }
+  for(j=0;info_buf[i]!='|';i++){ name[j++]=info_buf[i]; }
   name[j]='\0';
   i++;
-  for(j=0;info_buf[i]!='|';i++){
-    info[j++]=info_buf[i];
-  }
+  for(j=0;info_buf[i]!='|';i++){ info[j++]=info_buf[i]; }
   info[j]='\0';
   i++;
-  for(j=0;i<buf_size;i++){
-    emu[j++]=info_buf[i];
-  }
+  for(j=0;i<buf_size;i++){ emu[j++]=info_buf[i];}
   emu[j]='\0';
-  std::cout<<"1:"<<id<<" 2:"<<name<<" 3:"<<info<<" 4:"<<emu<<std::endl;
+  // std::cout<<"1:"<<id<<" 2:"<<name<<" 3:"<<info<<" 4:"<<emu<<std::endl;
 
  // std::cout<<"query statement is: "<<query_stmt<<std::endl;
   db_conn=mysql_real_connect(&mysql,"localhost","root","root","device",0,NULL,0);
@@ -189,7 +181,7 @@ int handle_device_info(uint8_t* info_buf,int buf_size){
    std::cout<<mysql_error(&mysql)<<std::endl;
    return -1;
   }
-  sprintf(query_stmt,"INSERT INTO main (did,name,info) VALUES ('%s','%s','%s')", id, name, info);
+  sprintf(query_stmt,"INSERT INTO main (did,name,info) VALUES ('%s','%s','%s')", fp_id, name, info);
   if(mysql_query(db_conn, query_stmt)!=0){
    std::cout<<"insert to database failed."<<std::endl;
    return -1;
